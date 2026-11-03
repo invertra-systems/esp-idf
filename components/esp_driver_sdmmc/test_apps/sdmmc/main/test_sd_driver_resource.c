@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -64,8 +64,12 @@ TEST_CASE("SDMMC controller exhausted allocation", "[sdmmc]")
     for (int i = 0; i < SDMMC_LL_HOST_CTLR_NUMS; i++) {
         TEST_ESP_OK(sd_host_create_sdmmc_controller(&cfg, &ctlr[i]));
     }
-
+#if SDMMC_LL_HOST_CTLR_NUMS == 1
+    TEST_ESP_OK(sd_host_create_sdmmc_controller(&cfg, &ctlr[SDMMC_LL_HOST_CTLR_NUMS]));
+    TEST_ASSERT_EQUAL_PTR(ctlr[0], ctlr[SDMMC_LL_HOST_CTLR_NUMS]);
+#else
     TEST_ESP_ERR(ESP_ERR_NOT_FOUND, sd_host_create_sdmmc_controller(&cfg, &ctlr[SDMMC_LL_HOST_CTLR_NUMS]));
+#endif
 
     for (int i = 0; i < SDMMC_LL_HOST_CTLR_NUMS; i++) {
         TEST_ESP_OK(sd_host_del_controller(ctlr[i]));

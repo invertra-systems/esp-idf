@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -73,6 +73,17 @@ esp_err_t sd_host_create_sdmmc_controller(const sd_host_sdmmc_cfg_t *config, sd_
 {
     esp_err_t ret = ESP_FAIL;
     ESP_RETURN_ON_FALSE(config && ret_handle, ESP_ERR_INVALID_ARG, TAG, "invalid argument: null pointer");
+
+#if SDMMC_LL_HOST_CTLR_NUMS == 1
+    _lock_acquire(&s_platform.mutex);
+    sd_host_sdmmc_ctlr_t *existing = s_platform.controllers[0];
+    _lock_release(&s_platform.mutex);
+    if (existing) {
+        ESP_LOGI(TAG, "%s: SDMMC host controller already created, returning existing handle", __func__);
+        *ret_handle = &existing->drv;
+        return ESP_OK;
+    }
+#endif
 
     sd_host_sdmmc_ctlr_t *ctlr = heap_caps_calloc(1, sizeof(sd_host_sdmmc_ctlr_t), SD_HOST_SDMMC_MEM_ALLOC_CAPS);
     ESP_RETURN_ON_FALSE(ctlr, ESP_ERR_NO_MEM, TAG, "no mem for sd host controller context");

@@ -64,9 +64,9 @@ typedef struct {
  * @param[out] ret_handle  Returned SDMMC Host controller handle
  *
  * @return
- *        - ESP_OK:               On success
+ *        - ESP_OK:               On success, or if the host was already created
  *        - ESP_ERR_NO_MEM:       Out of memory
- *        - ESP_ERR_NOT_FOUND:    Controller not found
+ *        - ESP_ERR_NOT_FOUND:    No free controller
  *        - ESP_ERR_INVALID_ARG:  Invalid argument
  */
 esp_err_t sd_host_create_sdmmc_controller(const sd_host_sdmmc_cfg_t *config, sd_host_ctlr_handle_t *ret_handle);

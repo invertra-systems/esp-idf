@@ -1,0 +1,113 @@
+From 0345a04bab775b53cf9c008beedce588d7231d1a Mon Sep 17 00:00:00 2001
+From: gaoxu <gaoxu@espressif.com>
+Date: Wed, 13 May 2026 14:26:53 +0800
+Subject: [PATCH] fix(sdmmc): fix sdmmc re-init error
+
+---
+ .../esp_driver_sdmmc/include/driver/sd_host_sdmmc.h |  4 ++--
+ components/esp_driver_sdmmc/legacy/src/sdmmc_host.c |  5 ++++-
+ components/esp_driver_sdmmc/src/sd_host_sdmmc.c     | 13 ++++++++++++-
+ .../test_apps/sdmmc/main/test_sd_driver_resource.c  |  8 ++++++--
+ 4 files changed, 24 insertions(+), 6 deletions(-)
+
+diff --git a/components/esp_driver_sdmmc/include/driver/sd_host_sdmmc.h b/components/esp_driver_sdmmc/include/driver/sd_host_sdmmc.h
+index c6db874fe40..ecdbfd065e9 100644
+--- a/components/esp_driver_sdmmc/include/driver/sd_host_sdmmc.h
++++ b/components/esp_driver_sdmmc/include/driver/sd_host_sdmmc.h
+@@ -64,9 +64,9 @@ typedef struct {
+  * @param[out] ret_handle  Returned SDMMC Host controller handle
+  *
+  * @return
+- *        - ESP_OK:               On success
++ *        - ESP_OK:               On success, or if the host was already created
+  *        - ESP_ERR_NO_MEM:       Out of memory
+- *        - ESP_ERR_NOT_FOUND:    Controller not found
++ *        - ESP_ERR_NOT_FOUND:    No free controller
+  *        - ESP_ERR_INVALID_ARG:  Invalid argument
+  */
+ esp_err_t sd_host_create_sdmmc_controller(const sd_host_sdmmc_cfg_t *config, sd_host_ctlr_handle_t *ret_handle);
+diff --git a/components/esp_driver_sdmmc/legacy/src/sdmmc_host.c b/components/esp_driver_sdmmc/legacy/src/sdmmc_host.c
+index a532050003e..d23c0193cbd 100644
+--- a/components/esp_driver_sdmmc/legacy/src/sdmmc_host.c
++++ b/components/esp_driver_sdmmc/legacy/src/sdmmc_host.c
+@@ -1,5 +1,5 @@
+ /*
+- * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
++ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
+  *
+  * SPDX-License-Identifier: Apache-2.0
+  */
+@@ -158,6 +158,8 @@ esp_err_t sdmmc_host_deinit_slot(int slot)
+     //for backward compatibility, return ESP_OK when only slot is removed and host is still there
+     if (ret == ESP_ERR_INVALID_STATE) {
+         ret = ESP_OK;
++    } else if (ret == ESP_OK) {
++        s_ctlr = NULL;
+     }
+ 
+     return ret;
+@@ -176,6 +178,7 @@ esp_err_t sdmmc_host_deinit(void)
+         }
+     }
+     ESP_RETURN_ON_ERROR(sd_host_del_controller(s_ctlr), TAG, "failed to delete controller");
++    s_ctlr = NULL;
+ 
+     return ESP_OK;
+ }
+diff --git a/components/esp_driver_sdmmc/src/sd_host_sdmmc.c b/components/esp_driver_sdmmc/src/sd_host_sdmmc.c
+index 84860d080e2..8be3be10836 100644
+--- a/components/esp_driver_sdmmc/src/sd_host_sdmmc.c
++++ b/components/esp_driver_sdmmc/src/sd_host_sdmmc.c
+@@ -1,5 +1,5 @@
+ /*
+- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
++ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
+  *
+  * SPDX-License-Identifier: Apache-2.0
+  */
+@@ -74,6 +74,17 @@ esp_err_t sd_host_create_sdmmc_controller(const sd_host_sdmmc_cfg_t *config, sd_
+     esp_err_t ret = ESP_FAIL;
+     ESP_RETURN_ON_FALSE(config && ret_handle, ESP_ERR_INVALID_ARG, TAG, "invalid argument: null pointer");
+ 
++#if SDMMC_LL_HOST_CTLR_NUMS == 1
++    _lock_acquire(&s_platform.mutex);
++    sd_host_sdmmc_ctlr_t *existing = s_platform.controllers[0];
++    _lock_release(&s_platform.mutex);
++    if (existing) {
++        ESP_LOGI(TAG, "%s: SDMMC host controller already created, returning existing handle", __func__);
++        *ret_handle = &existing->drv;
++        return ESP_OK;
++    }
++#endif
++
+     sd_host_sdmmc_ctlr_t *ctlr = heap_caps_calloc(1, sizeof(sd_host_sdmmc_ctlr_t), SD_HOST_SDMMC_MEM_ALLOC_CAPS);
+     ESP_RETURN_ON_FALSE(ctlr, ESP_ERR_NO_MEM, TAG, "no mem for sd host controller context");
+ 
+diff --git a/components/esp_driver_sdmmc/test_apps/sdmmc/main/test_sd_driver_resource.c b/components/esp_driver_sdmmc/test_apps/sdmmc/main/test_sd_driver_resource.c
+index adc14fe6758..ecafbc1bfce 100644
+--- a/components/esp_driver_sdmmc/test_apps/sdmmc/main/test_sd_driver_resource.c
++++ b/components/esp_driver_sdmmc/test_apps/sdmmc/main/test_sd_driver_resource.c
+@@ -1,5 +1,5 @@
+ /*
+- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
++ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
+  *
+  * SPDX-License-Identifier: Apache-2.0
+  */
+@@ -64,8 +64,12 @@ TEST_CASE("SDMMC controller exhausted allocation", "[sdmmc]")
+     for (int i = 0; i < SDMMC_LL_HOST_CTLR_NUMS; i++) {
+         TEST_ESP_OK(sd_host_create_sdmmc_controller(&cfg, &ctlr[i]));
+     }
+-
++#if SDMMC_LL_HOST_CTLR_NUMS == 1
++    TEST_ESP_OK(sd_host_create_sdmmc_controller(&cfg, &ctlr[SDMMC_LL_HOST_CTLR_NUMS]));
++    TEST_ASSERT_EQUAL_PTR(ctlr[0], ctlr[SDMMC_LL_HOST_CTLR_NUMS]);
++#else
+     TEST_ESP_ERR(ESP_ERR_NOT_FOUND, sd_host_create_sdmmc_controller(&cfg, &ctlr[SDMMC_LL_HOST_CTLR_NUMS]));
++#endif
+ 
+     for (int i = 0; i < SDMMC_LL_HOST_CTLR_NUMS; i++) {
+         TEST_ESP_OK(sd_host_del_controller(ctlr[i]));
+-- 
+2.43.0
+
